@@ -136,20 +136,6 @@ export default class SpellCheckHandler {
     this._automaticallyIdentifyLanguages = true;
 
     this.disp = new SerialSubscription();
-
-    if (isMac) {
-      // NB: OS X does automatic language detection, we're gonna trust it
-      this.currentSpellchecker = new Spellchecker();
-      this.currentSpellcheckerLanguage = 'en-US';
-
-      if (webFrame) {
-        webFrame.setSpellCheckProvider(
-          this.currentSpellcheckerLanguage,
-          this.shouldAutoCorrect,
-          { spellCheck: this.handleElectronSpellCheck.bind(this) });
-      }
-      return;
-    }
   }
 
   /**
@@ -164,16 +150,6 @@ export default class SpellCheckHandler {
    */
   set automaticallyIdentifyLanguages(value) {
     this._automaticallyIdentifyLanguages = !!value;
-
-    // Calling `setDictionary` on the macOS implementation of `@paulcbetts/spellchecker`
-    // is the only way to set the `automaticallyIdentifyLanguages` property on the
-    // native NSSpellchecker. Calling switchLanguage with a language will set it `false`,
-    // while calling it with an empty language will set it to `true`
-    if (isMac && !!value) {
-      this.switchLanguage();
-    } else if (isMac && !!value && this.currentSpellcheckerLanguage) {
-      this.switchLanguage(this.currentSpellcheckerLanguage);
-    }
   }
 
   /**
@@ -207,11 +183,6 @@ export default class SpellCheckHandler {
    *                            things that this method registered.
    */
   attachToInput(inputText=null) {
-    // OS X has no need for any of this
-    if (isMac && !inputText) {
-      return Subscription.EMPTY;
-    }
-
     let possiblySwitchedCharacterSets = new Subject();
     let wordsTyped = 0;
 
@@ -362,7 +333,6 @@ export default class SpellCheckHandler {
    */
   async provideHintText(inputText) {
     let langWithoutLocale = null;
-    if (isMac) return;
 
     try {
       langWithoutLocale = await this.detectLanguageForText(inputText.substring(0, 512));
@@ -389,16 +359,21 @@ export default class SpellCheckHandler {
     let actualLang;
     let dict = null;
 
+    this.isMisspelledCache.reset();
+
     // Set language on macOS
-    if (isMac && this.currentSpellchecker) {
+    if (isMac) {
       d(`Setting current spellchecker to ${langCode}`);
       this.currentSpellcheckerLanguage = langCode;
-      return this.currentSpellchecker.setDictionary(langCode);
+      if (!this.currentSpellchecker) {
+        this.currentSpellchecker = new Spellchecker();
+      }
+      this.currentSpellchecker.setDictionary(langCode);
+      this.currentSpellcheckerChanged.next(true);
+      return;
     }
 
     // Set language on Linux & Windows (Hunspell)
-    this.isMisspelledCache.reset();
-
     try {
       const {dictionary, language} = await this.loadDictionaryForLanguageWithAlternatives(langCode);
       actualLang = language; dict = dictionary;
@@ -470,10 +445,6 @@ export default class SpellCheckHandler {
    */
   handleElectronSpellCheck(text) {
     if (!this.currentSpellchecker) return true;
-
-    if (isMac) {
-      return !this.isMisspelled(text);
-    }
 
     this.spellCheckInvoked.next(true);
 
