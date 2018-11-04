@@ -189,7 +189,11 @@ export default class SpellCheckHandler {
       if (!this.currentSpellchecker || !isMac) {
         this.currentSpellchecker = new Spellchecker();
       }
-      this.currentSpellchecker.setDictionary(actualLang, dict);
+      if (isMac) {
+        this.currentSpellchecker.setDictionary(actualLang);
+      } else {
+        this.currentSpellchecker.setDictionary(actualLang, dict);
+      }
       this.currentSpellcheckerLanguage = actualLang;
 
       // Note: It's important we update the webframe provider, even with the same callback, because
