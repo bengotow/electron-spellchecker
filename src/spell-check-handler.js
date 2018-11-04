@@ -133,23 +133,14 @@ export default class SpellCheckHandler {
 
     this.scheduler = scheduler;
     this.shouldAutoCorrect = true;
-    this._automaticallyIdentifyLanguages = true;
+    this.automaticallyIdentifyLanguages = true;
+
+    if (isMac) {
+      this.currentSpellchecker = new Spellchecker();
+      this.currentSpellchecker.setDictionary('en_US');
+    }
 
     this.disp = new SerialSubscription();
-  }
-
-  /**
-   * Is the spellchecker trying to detect the typed language automatically?
-   */
-  get automaticallyIdentifyLanguages() {
-    return this._automaticallyIdentifyLanguages;
-  }
-
-  /**
-   * Is the spellchecker trying to detect the typed language automatically?
-   */
-  set automaticallyIdentifyLanguages(value) {
-    this._automaticallyIdentifyLanguages = !!value;
   }
 
   /**
@@ -365,9 +356,6 @@ export default class SpellCheckHandler {
     if (isMac) {
       d(`Setting current spellchecker to ${langCode}`);
       this.currentSpellcheckerLanguage = langCode;
-      if (!this.currentSpellchecker) {
-        this.currentSpellchecker = new Spellchecker();
-      }
       this.currentSpellchecker.setDictionary(langCode);
       this.currentSpellcheckerChanged.next(true);
       return;
