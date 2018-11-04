@@ -1,3 +1,18 @@
+# This Fork:
+
+- Changes the installation signature. `attachToInput` has been removed. Just create an instance and optionally pass it an initial language code.
+
+- Removes automatic language detection during typing, which only worked on `<input>` (not contenteditable). To change languages, you must manually invoke `switchLanguage` or give a text example via `provideHintText`. MacOS and Windows/Linux use the same code to determine a language from the hint text and explicitly set the language. *Previously on macOS, this module delegated to NSSpellchecker for automatic language detection, but it was unclear how it worked and many people reported it was broken, so now we use the same detection code on all platforms.*
+
+- When switching languages on MacOS, the misspelling cache is correctly cleared so that previous misspellings are re-evaluated.
+
+- When switching languages on MacOS, the webFrame.setSpellCheckProvider method is re-invoked with the new language code, which allows Chromium to re-run `SpellcheckCharAttribute::CreateRuleSets` and ensure it is breaking words for spellcheck using the appropriate language rules.
+
+- Removes the `shouldAutoCorrect` option (now always `true`) which did not always change immediately when you modified it since the webFrame provider was only created when switching langauges.
+
+- Removes the `Subject` observables.
+
+
 # electron-spellchecker
 
 ![](https://img.shields.io/npm/dm/electron-spellchecker.svg) <a href="https://electron-userland.github.io/electron-spellchecker/docs">![](https://electron-userland.github.io/electron-spellchecker/docs/badge.svg)</a>
