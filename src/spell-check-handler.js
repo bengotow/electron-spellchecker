@@ -2,10 +2,7 @@ import {spawn} from 'spawn-rx';
 import {requireTaskPool} from 'electron-remote';
 import LRU from 'lru-cache';
 
-import {Subscription} from 'rxjs/Subscription';
 import {Observable} from 'rxjs/Observable';
-import {Subject} from 'rxjs/Subject';
-import SerialSubscription from 'rxjs-serial-subscription';
 
 import 'rxjs/add/observable/defer';
 import 'rxjs/add/observable/empty';
@@ -49,6 +46,8 @@ const validLangCodeWindowsLinux = /[a-z]{2}[_][A-Z]{2}/;
 
 const isMac = process.platform === 'darwin';
 
+const shouldAutoCorrect = true;
+
 // NB: This is to work around electron/electron#1005, where contractions
 // are incorrectly marked as spelling errors. This lets people get away with
 // incorrectly spelled contracted words, but it's the best we can do for now.
@@ -70,24 +69,6 @@ const contractionMap = contractions.reduce((acc, word) => {
 }, {});
 
 const alternatesTable = {};
-
-/**
- * This method mimics Observable.fromEvent, but with capture semantics.
- */
-function fromEventCapture(element, name) {
-  return Observable.create((subj) => {
-    const handler = function(...args) {
-      if (args.length > 1) {
-        subj.next(args);
-      } else {
-        subj.next(args[0] || true);
-      }
-    };
-
-    element.addEventListener(name, handler, true);
-    return new Subscription(() => element.removeEventListener(name, handler, true));
-  });
-}
 
 /**
  * SpellCheckHandler is the main class of this library, and handles all of the
@@ -121,34 +102,26 @@ export default class SpellCheckHandler {
     Spellchecker = require('./node-spellchecker').Spellchecker;
 
     this.dictionarySync = dictionarySync || new DictionarySync();
-    this.switchToLanguage = new Subject();
     this.currentSpellchecker = null;
     this.currentSpellcheckerLanguage = null;
-    this.currentSpellcheckerChanged = new Subject();
-    this.spellCheckInvoked = new Subject();
-    this.spellingErrorOccurred = new Subject();
     this.isMisspelledCache = new LRU({
       max: 512, maxAge: 4 * 1000
     });
 
     this.scheduler = scheduler;
-    this.shouldAutoCorrect = true;
-    this.automaticallyIdentifyLanguages = true;
 
     if (isMac) {
+      // NB: OS X does automatic language detection, we're gonna trust it 
       // On macOS we only ever create one, and then just change it's language
       this.currentSpellchecker = new Spellchecker();
+      this.currentSpellcheckerLanguage = 'en-US';
+      if (webFrame) {
+        webFrame.setSpellCheckProvider(
+          this.currentSpellcheckerLanguage,
+          shouldAutoCorrect,
+          { spellCheck: this.handleElectronSpellCheck.bind(this) });
+      } 
     }
-
-    this.disp = new SerialSubscription();
-  }
-
-  /**
-   * Disconnect the events that we connected in {{attachToInput}} or other places
-   * in the class.
-   */
-  unsubscribe() {
-    this.disp.unsubscribe();
   }
 
   /**
@@ -159,157 +132,6 @@ export default class SpellCheckHandler {
    */
   static setLogger(fn) {
     d = fn;
-  }
-
-  /**
-   * Attach to document.body and register ourselves for Electron spell checking.
-   * This method will start to watch text entered by the user and automatically
-   * switch languages as well as enable Electron spell checking (i.e. the red
-   * squigglies).
-   *
-   * @param  {Observable<String>} inputText     Simulate the user typing text,
-   *                                            for testing.
-   *
-   * @return {Disposable}       A Disposable which will unregister all of the
-   *                            things that this method registered.
-   */
-  attachToInput(inputText=null) {
-    let possiblySwitchedCharacterSets = new Subject();
-    let wordsTyped = 0;
-
-    if (!inputText && !document.body) {
-      throw new Error("document.body is null, if you're calling this in a preload script you need to wrap it in a setTimeout");
-    }
-
-    let input = inputText || (fromEventCapture(document.body, 'input')
-      .mergeMap((e) => {
-        if (!e.target || !e.target.value) return Observable.empty();
-        if (e.target.value.match(/\S\s$/)) {
-          wordsTyped++;
-        }
-
-        if (wordsTyped > 2) {
-          d(`${wordsTyped} words typed without spell checking invoked, redetecting language`);
-          possiblySwitchedCharacterSets.next(true);
-        }
-
-        return Observable.of(e.target.value);
-      }));
-
-    let disp = new Subscription();
-
-    // NB: When users switch character sets (i.e. we're checking in English and
-    // the user suddenly starts typing in Russian), the spellchecker will no
-    // longer invoke us, so we don't have a chance to re-detect the language.
-    //
-    // If we see too many words typed without a spelling detection, we know we
-    // should start rechecking the input box for a language change.
-    disp.add(Observable.merge(this.spellCheckInvoked, this.currentSpellcheckerChanged)
-      .subscribe(() => wordsTyped = 0));
-
-    let lastInputText = '';
-    disp.add(input.subscribe((x) => lastInputText = x));
-
-    let initialInputText = input
-      .guaranteedThrottle(250, this.scheduler)
-      .takeUntil(this.currentSpellcheckerChanged);
-
-    if (this.currentSpellcheckerLanguage) {
-      initialInputText = Observable.empty();
-    }
-
-    let contentToCheck = Observable.merge(
-        this.spellingErrorOccurred,
-        initialInputText,
-        possiblySwitchedCharacterSets)
-      .mergeMap(() => {
-        if (lastInputText.length < 8) return Observable.empty();
-        return Observable.of(lastInputText);
-      });
-
-    let languageDetectionMatches = contentToCheck
-      .filter(() => this.automaticallyIdentifyLanguages)
-      .mergeMap((text) => {
-        d(`Attempting detection, string length: ${text.length}`);
-        if (text.length > 256) {
-          text = text.substr(text.length - 256);
-        }
-
-        return Observable.fromPromise(this.detectLanguageForText(text))
-          .catch(() => Observable.empty());
-      });
-
-    disp.add(languageDetectionMatches
-      .mergeMap(async (langWithoutLocale) => {
-        d(`Auto-detected language as ${langWithoutLocale}`);
-        let lang = await this.getLikelyLocaleForLanguage(langWithoutLocale);
-        if (lang !== this.currentSpellcheckerLanguage) await this.switchLanguage(lang);
-
-        return lang;
-      })
-      .catch((e) => {
-        d(`Failed to load dictionary: ${e.message}`);
-        return Observable.empty();
-      })
-      .subscribe(async (lang) => {
-        d(`New Language is ${lang}`);
-      }));
-
-    if (webFrame) {
-      let prevSpellCheckLanguage;
-
-      disp.add(this.currentSpellcheckerChanged
-          .startWith(true)
-        .filter(() => this.currentSpellcheckerLanguage)
-        .subscribe(() => {
-          if (prevSpellCheckLanguage === this.currentSpellcheckerLanguage) return;
-
-          d('Actually installing spell check provider to Electron');
-          webFrame.setSpellCheckProvider(
-            this.currentSpellcheckerLanguage,
-            this.shouldAutoCorrect,
-            { spellCheck: this.handleElectronSpellCheck.bind(this) });
-
-          prevSpellCheckLanguage = this.currentSpellcheckerLanguage;
-        }));
-    }
-
-    this.disp.add(disp);
-    return disp;
-  }
-
-  /**
-   * autoUnloadDictionariesOnBlur attempts to save memory by unloading
-   * dictionaries when the window loses focus.
-   *
-   * @return {Disposable}   A {{Disposable}} that will unhook the events listened
-   *                        to by this method.
-   */
-  autoUnloadDictionariesOnBlur() {
-    let ret = new Subscription();
-    let hasUnloaded = false;
-
-    if (isMac) return Subscription.EMPTY;
-
-    ret.add(Observable.fromEvent(window, 'blur').subscribe(() => {
-      d(`Unloading spellchecker`);
-      this.currentSpellchecker = null;
-      hasUnloaded = true;
-    }));
-
-    ret.add(Observable.fromEvent(window, 'focus').mergeMap(() => {
-      if (!hasUnloaded) return Observable.empty();
-      if (!this.currentSpellcheckerLanguage) return Observable.empty();
-
-      d(`Restoring spellchecker`);
-      return Observable.fromPromise(this.switchLanguage(this.currentSpellcheckerLanguage))
-        .catch((e) => {
-          d(`Failed to restore spellchecker: ${e.message}`);
-          return Observable.empty();
-        });
-    }).subscribe());
-
-    return ret;
   }
 
   /**
@@ -359,7 +181,6 @@ export default class SpellCheckHandler {
       d(`Setting current spellchecker to ${langCode}`);
       this.currentSpellcheckerLanguage = langCode;
       this.currentSpellchecker.setDictionary(langCode);
-      this.currentSpellcheckerChanged.next(true);
       return;
     }
 
@@ -376,7 +197,6 @@ export default class SpellCheckHandler {
       d(`dictionary for ${langCode}_${actualLang} is not available`);
       this.currentSpellcheckerLanguage = actualLang;
       this.currentSpellchecker = null;
-      this.currentSpellcheckerChanged.next(true);
       return;
     }
 
@@ -387,7 +207,11 @@ export default class SpellCheckHandler {
       this.currentSpellchecker = new Spellchecker();
       this.currentSpellchecker.setDictionary(actualLang, dict);
       this.currentSpellcheckerLanguage = actualLang;
-      this.currentSpellcheckerChanged.next(true);
+
+      webFrame.setSpellCheckProvider(
+        this.currentSpellcheckerLanguage,
+        shouldAutoCorrect,
+        { spellCheck: this.handleElectronSpellCheck.bind(this) });
     }
   }
 
@@ -436,10 +260,7 @@ export default class SpellCheckHandler {
   handleElectronSpellCheck(text) {
     if (!this.currentSpellchecker) return true;
 
-    this.spellCheckInvoked.next(true);
-
     let result = this.isMisspelled(text);
-    if (result) this.spellingErrorOccurred.next(text);
     return !result;
   }
 
