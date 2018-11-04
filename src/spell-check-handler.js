@@ -94,10 +94,8 @@ export default class SpellCheckHandler {
    *                                          to override the dictionary cache
    *                                          location.
    * @param  {LocalStorage} localStorage      Deprecated.
-   * @param  {Scheduler} scheduler            The Rx scheduler to use, for
-   *                                          testing.
    */
-  constructor(dictionarySync=null, localStorage=null, scheduler=null) {
+  constructor(initialLanguage='en-US', dictionarySync=null) {
     // NB: Require here so that consumers can handle native module exceptions.
     Spellchecker = require('./node-spellchecker').Spellchecker;
 
@@ -108,20 +106,7 @@ export default class SpellCheckHandler {
       max: 512, maxAge: 4 * 1000
     });
 
-    this.scheduler = scheduler;
-
-    if (isMac) {
-      // NB: OS X does automatic language detection, we're gonna trust it 
-      // On macOS we only ever create one, and then just change it's language
-      this.currentSpellchecker = new Spellchecker();
-      this.currentSpellcheckerLanguage = 'en-US';
-      if (webFrame) {
-        webFrame.setSpellCheckProvider(
-          this.currentSpellcheckerLanguage,
-          shouldAutoCorrect,
-          { spellCheck: this.handleElectronSpellCheck.bind(this) });
-      } 
-    }
+    this.switchLanguage(initialLanguage);
   }
 
   /**
@@ -174,44 +159,48 @@ export default class SpellCheckHandler {
     let actualLang;
     let dict = null;
 
-    this.isMisspelledCache.reset();
-
-    // Set language on macOS
     if (isMac) {
-      d(`Setting current spellchecker to ${langCode}`);
-      this.currentSpellcheckerLanguage = langCode;
-      this.currentSpellchecker.setDictionary(langCode);
-      return;
-    }
+      actualLang = langCode;
+    } else {
+      // Fetch dictionary on Linux & Windows (Hunspell)
+      try {
+        const {dictionary, language} = await this.loadDictionaryForLanguageWithAlternatives(langCode);
+        actualLang = language; dict = dictionary;
+      } catch (e) {
+        d(`Failed to load dictionary ${langCode}: ${e.message}`);
+        throw e;
+      }
 
-    // Set language on Linux & Windows (Hunspell)
-    try {
-      const {dictionary, language} = await this.loadDictionaryForLanguageWithAlternatives(langCode);
-      actualLang = language; dict = dictionary;
-    } catch (e) {
-      d(`Failed to load dictionary ${langCode}: ${e.message}`);
-      throw e;
-    }
-
-    if (!dict) {
-      d(`dictionary for ${langCode}_${actualLang} is not available`);
-      this.currentSpellcheckerLanguage = actualLang;
-      this.currentSpellchecker = null;
-      return;
+      if (!dict) {
+        d(`dictionary for ${langCode}_${actualLang} is not available`);
+        this.currentSpellcheckerLanguage = actualLang;
+        this.currentSpellchecker = null;
+        return;
+      }
     }
 
     d(`Setting current spellchecker to ${actualLang}, requested language was ${langCode}`);
     if (this.currentSpellcheckerLanguage !== actualLang || !this.currentSpellchecker) {
+      this.isMisspelledCache.reset();
+
       d(`Creating node-spellchecker instance`);
 
-      this.currentSpellchecker = new Spellchecker();
+      // Note: On macOS we can re-use the spellchecker
+      if (!this.currentSpellchecker || !isMac) {
+        this.currentSpellchecker = new Spellchecker();
+      }
       this.currentSpellchecker.setDictionary(actualLang, dict);
       this.currentSpellcheckerLanguage = actualLang;
 
-      webFrame.setSpellCheckProvider(
-        this.currentSpellcheckerLanguage,
-        shouldAutoCorrect,
-        { spellCheck: this.handleElectronSpellCheck.bind(this) });
+      // Note: It's important we update the webframe provider, even with the same callback, because
+      // the langauge is used to determine which characters break words. It's passed all the way to
+      // https://github.com/adobe/chromium/blob/master/chrome/renderer/spellchecker/spellcheck_worditerator.cc
+      if (webFrame) {
+        webFrame.setSpellCheckProvider(
+          this.currentSpellcheckerLanguage,
+          shouldAutoCorrect,
+          { spellCheck: this.handleElectronSpellCheck.bind(this) });
+      }
     }
   }
 
