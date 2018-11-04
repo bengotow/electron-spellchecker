@@ -136,8 +136,8 @@ export default class SpellCheckHandler {
     this.automaticallyIdentifyLanguages = true;
 
     if (isMac) {
+      // On macOS we only ever create one, and then just change it's language
       this.currentSpellchecker = new Spellchecker();
-      this.currentSpellchecker.setDictionary('en_US');
     }
 
     this.disp = new SerialSubscription();
@@ -333,7 +333,9 @@ export default class SpellCheckHandler {
     }
 
     let lang = await this.getLikelyLocaleForLanguage(langWithoutLocale);
-    await this.switchLanguage(lang);
+    if (lang) {
+      await this.switchLanguage(lang);
+    }
   }
 
   /**
