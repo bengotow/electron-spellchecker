@@ -1,4 +1,4 @@
-const cld = require('@nornagon/cld');
+const cld = require('cld');
 
 export function detect(text) {
   return new Promise((res,rej) => {
