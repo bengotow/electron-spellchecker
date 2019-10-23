@@ -386,12 +386,15 @@ export default class SpellCheckHandler {
       fallbackLocaleTable = fallbackLocaleTable || require('./fallback-locales');
 
       // NB: OS X will return lists that are half just a language, half
-      // language + locale, like ['en', 'pt_BR', 'ko']
+      // language + locale, like ['en', 'pt_BR', 'ko']. If the user has
+      // custom dictionaries installed, it cana also return random weird
+      // strings like `ars` (Najdi Arabic) we have no idea what to do with
+      // and just ignore.
       localeList = this.currentSpellchecker.getAvailableDictionaries()
         .map((x => {
           if (x.length === 2) return fallbackLocaleTable[x];
-          return normalizeLanguageCode(x);
-        }));
+          return normalizeLanguageCode(x); // BG: can return null
+        })).filter(lang => !!lang);
     }
 
     d(`Filtered Locale list: ${JSON.stringify(localeList)}`);
@@ -413,7 +416,9 @@ export default class SpellCheckHandler {
 
       d(`Setting ${x}`);
       acc[x] = normalizeLanguageCode(counts[x][0]);
-
+      if (!acc[x]) {
+        throw new Error(`${counts[x][0]} is not a valid language code`);
+      }
       return acc;
     }, {});
 
@@ -422,7 +427,11 @@ export default class SpellCheckHandler {
       let m = process.env.LANG.match(validLangCodeWindowsLinux);
       if (!m) return ret;
 
-      ret[m[0].split(/[-_\.]/)[0]] = normalizeLanguageCode(m[0]);
+      const key = m[0].split(/[-_\.]/)[0];
+      ret[key] = normalizeLanguageCode(m[0]);
+      if (!ret[key]) {
+        throw new Error(`${m[0]} is not a valid language code`);
+      }
     }
 
     d(`Result: ${JSON.stringify(ret)}`);

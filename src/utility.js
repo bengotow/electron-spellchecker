@@ -12,7 +12,7 @@ import { parse } from 'bcp47';
 export function normalizeLanguageCode(langCode) {
   let result = parse(langCode.replace(/[_-]/g, '-'));
   if (!result || !result.langtag.language || !result.langtag.region) {
-    throw new Error(`${langCode} is not a valid language code`);
+    return null;
   }
 
   return `${result.langtag.language.language.toLowerCase()}-${result.langtag.region.toUpperCase()}`;

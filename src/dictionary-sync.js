@@ -71,6 +71,9 @@ export default class DictionarySync {
     if (process.platform === 'darwin') return new Buffer([]);
 
     let lang = normalizeLanguageCode(langCode);
+    if (!lang) {
+      throw new Error(`${langCode} is not a valid language code`);
+    }
     let target = path.join(this.cacheDir, `${lang}.bdic`);
 
     let fileExists = false;
