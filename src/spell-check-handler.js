@@ -46,8 +46,6 @@ const validLangCodeWindowsLinux = /[a-z]{2}[_][A-Z]{2}/;
 
 const isMac = process.platform === 'darwin';
 
-const shouldAutoCorrect = true;
-
 // NB: This is to work around electron/electron#1005, where contractions
 // are incorrectly marked as spelling errors. This lets people get away with
 // incorrectly spelled contracted words, but it's the best we can do for now.
@@ -202,7 +200,6 @@ export default class SpellCheckHandler {
       if (webFrame) {
         webFrame.setSpellCheckProvider(
           this.currentSpellcheckerLanguage,
-          shouldAutoCorrect,
           { spellCheck: this.handleElectronSpellCheck.bind(this) });
       }
     }
@@ -250,11 +247,9 @@ export default class SpellCheckHandler {
    *  The actual callout called by Electron to handle spellchecking
    *  @private
    */
-  handleElectronSpellCheck(text) {
+  handleElectronSpellCheck(words, callback) {
     if (!this.currentSpellchecker) return true;
-
-    let result = this.isMisspelled(text);
-    return !result;
+    return callback(words.filter(w => this.isMisspelled(w)));
   }
 
   /**
