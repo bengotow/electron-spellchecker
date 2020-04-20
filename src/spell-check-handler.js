@@ -1,34 +1,34 @@
-import {spawn} from 'spawn-rx';
-import {requireTaskPool} from 'electron-remote';
-import LRU from 'lru-cache';
+const {spawn} = require('spawn-rx');
+const {requireTaskPool} = require('electron-remote');
+const LRU = require('lru-cache');
 
-import {Observable} from 'rxjs/Observable';
+const {Observable} = require('rxjs/Observable');
 
-import 'rxjs/add/observable/defer';
-import 'rxjs/add/observable/empty';
-import 'rxjs/add/observable/fromEvent';
-import 'rxjs/add/observable/fromPromise';
-import 'rxjs/add/observable/of';
+require('rxjs/add/observable/defer');;
+require('rxjs/add/observable/empty');;
+require('rxjs/add/observable/fromEvent');;
+require('rxjs/add/observable/fromPromise');;
+require('rxjs/add/observable/of');;
 
-import 'rxjs/add/operator/catch';
-import 'rxjs/add/operator/concat';
-import 'rxjs/add/operator/concatMap';
-import 'rxjs/add/operator/do';
-import 'rxjs/add/operator/filter';
-import 'rxjs/add/operator/mergeMap';
-import 'rxjs/add/operator/merge';
-import 'rxjs/add/operator/observeOn';
-import 'rxjs/add/operator/reduce';
-import 'rxjs/add/operator/startWith';
-import 'rxjs/add/operator/take';
-import 'rxjs/add/operator/takeUntil';
-import 'rxjs/add/operator/throttle';
-import 'rxjs/add/operator/toPromise';
+require('rxjs/add/operator/catch');;
+require('rxjs/add/operator/concat');;
+require('rxjs/add/operator/concatMap');;
+require('rxjs/add/operator/do');;
+require('rxjs/add/operator/filter');;
+require('rxjs/add/operator/mergeMap');;
+require('rxjs/add/operator/merge');;
+require('rxjs/add/operator/observeOn');;
+require('rxjs/add/operator/reduce');;
+require('rxjs/add/operator/startWith');;
+require('rxjs/add/operator/take');;
+require('rxjs/add/operator/takeUntil');;
+require('rxjs/add/operator/throttle');;
+require('rxjs/add/operator/toPromise');;
 
-import './custom-operators';
+require('./custom-operators');;
 
-import DictionarySync from './dictionary-sync';
-import {normalizeLanguageCode} from './utility';
+const DictionarySync = require('./dictionary-sync');
+const {normalizeLanguageCode} = require('./utility');
 
 let Spellchecker;
 
@@ -83,7 +83,7 @@ const alternatesTable = {};
  * would be a great sample, or in the case of Slack, the existing channel messages
  * are used as the sample text.
  */
-export default class SpellCheckHandler {
+module.exports = class SpellCheckHandler {
   /**
    * Constructs a SpellCheckHandler
    *
@@ -249,7 +249,13 @@ export default class SpellCheckHandler {
    */
   handleElectronSpellCheck(words, callback) {
     if (!this.currentSpellchecker) return true;
-    return callback(words.filter(w => this.isMisspelled(w)));
+    const mispelled = words.filter(w => this.isMisspelled(w));
+    if (callback) {
+      callback(mispelled);
+    }
+    // BG NOTE: Mailspring still calls this synchronously! The result must be true if spelled
+    // correctly, false if misspelled.
+    return mispelled.length === 0;
   }
 
   /**

@@ -1,4 +1,4 @@
-export default class FakeLocalStorage {
+module.exports = class FakeLocalStorage {
   constructor() {
     this.ls = {};
   }
