@@ -37,8 +37,8 @@
     </div>
 
     <script>
+      const {remote} = require('electron')
       const SpellCheckHandler = require("../src/spell-check-handler");
-      const ContextMenuListener = require("../src/context-menu-listener");
       const ContextMenuBuilder = require("../src/context-menu-builder");
 
       window.spellCheckHandler = new SpellCheckHandler();
@@ -55,7 +55,8 @@
       window.spellCheckHandler.autoUnloadDictionariesOnBlur();
 
       let contextMenuBuilder = new ContextMenuBuilder(window.spellCheckHandler);
-      let contextMenuListener = new ContextMenuListener(async (info) => {
+
+      remote.getCurrentWebContents().addEventListener('context-menu', async (event, info) => {
         await contextMenuBuilder.showPopupMenu(info);
       });
     </script>
